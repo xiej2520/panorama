@@ -1,5 +1,9 @@
+use std::path::PathBuf;
+
 use glam::{Mat3, Mat4, Quat, Vec3};
 use glow::*;
+use panorama::ExpectErr;
+use panorama::loader::{create_faces, load_cubemap};
 
 fn main() {
     unsafe {
@@ -41,7 +45,7 @@ fn main() {
 
         gl.bind_vertex_array(None);
 
-        let cubemap_texture = load_cubemap(&gl, &IMAGES);
+        let cubemap_texture = load_cubemap(&gl, create_faces(&PathBuf::new()));
 
         gl.active_texture(glow::TEXTURE0);
         gl.bind_texture(glow::TEXTURE_CUBE_MAP, Some(cubemap_texture));
@@ -64,7 +68,6 @@ fn main() {
             let aspect_ratio = width as f32 / height as f32;
             gl.viewport(0, 0, width as i32, height as i32);
 
-
             gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
 
             gl.use_program(Some(program));
@@ -76,7 +79,7 @@ fn main() {
             gl.use_program(Some(skybox_program));
             let fov = 90.0f32;
             let projection = Mat4::perspective_rh_gl(fov.to_radians(), aspect_ratio, 0.1, 100.0);
-            
+
             let target = Quat::from_rotation_y(theta) * Vec3::Z;
             let camera_view = Mat4::look_at_rh(Vec3::ZERO, target, Vec3::Y);
             theta -= 0.001;
@@ -112,7 +115,7 @@ fn main() {
     }
 }
 
-unsafe fn create_sdl2_context() -> (
+fn create_sdl2_context() -> (
     glow::Context,
     sdl2::video::Window,
     sdl2::EventPump,
@@ -132,7 +135,10 @@ unsafe fn create_sdl2_context() -> (
         .unwrap();
     let gl_context = window.gl_create_context().unwrap();
     let gl = unsafe {
-        glow::Context::from_loader_function(|s| video.gl_get_proc_address(s) as *const _)
+        glow::Context::from_loader_function(|s| match video.gl_get_proc_address(s) {
+            p if p.is_null() => panic!("Failed to get OpenGL video function"),
+            s => s as *const _,
+        })
     };
     let event_loop = sdl.event_pump().unwrap();
 
@@ -252,72 +258,6 @@ const INDICES: [u32; 36] = [
     4, 0, 3, 4, 3, 7, // Top face
     1, 5, 6, 1, 6, 2, // Bottom face
 ];
-const IMAGES: [&str; 6] = [
-    // right, left, top, bottom, front, back
-    "panorama_1.png",
-    "panorama_3.png",
-    "panorama_4.png",
-    "panorama_5.png",
-    "panorama_0.png",
-    "panorama_2.png",
-];
-
-fn load_cubemap(gl: &glow::Context, faces: &[&str]) -> NativeTexture {
-    unsafe {
-        let texture = gl.create_texture().expect_else_err();
-        gl.bind_texture(glow::TEXTURE_CUBE_MAP, Some(texture));
-        for (i, &face) in faces.iter().enumerate() {
-            let img = image::ImageReader::open(face)
-                .expect(&format!("Failed to open '{}'", face))
-                .decode()
-                .unwrap();
-            let img = img.to_rgb8();
-            let (width, height) = img.dimensions();
-            let data = img.into_raw();
-
-            gl.tex_image_2d(
-                glow::TEXTURE_CUBE_MAP_POSITIVE_X + i as u32,
-                0,
-                glow::RGBA8 as i32,
-                width as i32,
-                height as i32,
-                0,
-                glow::RGB,
-                glow::UNSIGNED_BYTE,
-                PixelUnpackData::Slice(Some(&data)),
-            );
-
-            println!("Loaded cubemap face '{face}': {width}x{height}");
-        }
-        gl.tex_parameter_i32(
-            glow::TEXTURE_CUBE_MAP,
-            glow::TEXTURE_MIN_FILTER,
-            glow::LINEAR_MIPMAP_LINEAR as i32,
-        );
-        gl.tex_parameter_i32(
-            glow::TEXTURE_CUBE_MAP,
-            glow::TEXTURE_MAG_FILTER,
-            glow::LINEAR_MIPMAP_LINEAR as i32,
-        );
-        gl.tex_parameter_i32(
-            glow::TEXTURE_CUBE_MAP,
-            glow::TEXTURE_WRAP_S,
-            glow::CLAMP_TO_EDGE as i32,
-        );
-        gl.tex_parameter_i32(
-            glow::TEXTURE_CUBE_MAP,
-            glow::TEXTURE_WRAP_T,
-            glow::CLAMP_TO_EDGE as i32,
-        );
-        gl.tex_parameter_i32(
-            glow::TEXTURE_CUBE_MAP,
-            glow::TEXTURE_WRAP_R,
-            glow::CLAMP_TO_EDGE as i32,
-        );
-        gl.generate_mipmap(glow::TEXTURE_CUBE_MAP);
-        texture
-    }
-}
 
 const VERTEX_SHADER_CUBE_SOURCE: &str = r#"#version 330
 layout (location = 0) in vec3 aPos;
@@ -325,25 +265,13 @@ out vec3 TexCoords;
 uniform mat4 projection;
 uniform mat4 view;
 void main() {
-    TexCoords = aPos;  
-    gl_Position = projection * view * vec4(aPos, 1.0);
-  }"#;
+  TexCoords = aPos;  
+  gl_Position = projection * view * vec4(aPos, 1.0);
+}"#;
 const FRAGMENT_SHADER_CUBE_SOURCE: &str = r#"#version 330
 out vec4 FragColor;
 in vec3 TexCoords;
 uniform samplerCube skybox;
 void main() {
-    FragColor = texture(skybox, TexCoords);
-  }"#;
-
-trait ExpectErr<T> {
-    fn expect_else_err(self) -> T;
-}
-impl<T, E: std::fmt::Display> ExpectErr<T> for Result<T, E> {
-    fn expect_else_err(self) -> T {
-        match self {
-            Ok(ok) => ok,
-            Err(err) => panic!("{}", err),
-        }
-    }
-}
+  FragColor = texture(skybox, TexCoords);
+}"#;
