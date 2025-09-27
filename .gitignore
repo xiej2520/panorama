@@ -2,3 +2,7 @@
 result
 .vscode
 .direnv
+
+packs
+test/*
+*.png
