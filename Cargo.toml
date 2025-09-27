@@ -6,5 +6,6 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+glfw = "0.60.0"
 glow = "0.16.0"
-sdl2 = "0.38.0"
+

@@ -21,7 +21,14 @@
         naersk' = pkgs.callPackage naersk { };
 
         buildInputs = with pkgs; [
-          SDL2
+          glfw
+          pkg-config
+          xorg.libX11.dev
+          wayland
+
+          # not necessary to run
+          gdk-pixbuf # Could not load a pixbuf from icon theme
+          librsvg # Could not load a [svg] pixbuf from icon theme
         ];
 
         nativeBuildInputs = with pkgs; [
@@ -57,7 +64,12 @@
             ++ buildInputs
             ++ nativeBuildInputs;
           RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";
+          # removing GDK_BACKEND and LIBDECOR_PLUGIN causes libdecor-gtk-WARNING: Failed to initialize GTK
+          # but still runs
+          GDK_BACKEND = "wayland,x11";
+          LIBDECOR_PLUGIN = "default";
         };
       }
     );
 }
+
