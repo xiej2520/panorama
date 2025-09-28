@@ -1,22 +1,18 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
 use glam::{Mat3, Mat4, Quat, Vec3};
 use glow::*;
-use panorama::ExpectErr;
+use panorama::{ExpectErr, PrintErr};
 use panorama::loader::{create_faces, load_cubemap};
+use sdl2::EventPump;
+use sdl2::event::Event;
+use sdl2::video::{Window};
 
 fn main() {
     unsafe {
-        let (gl, window, mut events_loop, _context) = create_sdl2_context();
-
-        let program = create_program(&gl, VERTEX_SHADER_SOURCE, FRAGMENT_SHADER_SOURCE);
-        gl.use_program(Some(program));
-
-        let (vbo, vao) = create_vertex_buffer(&gl);
-
-        set_uniform(&gl, program, "blue", 0.8);
-
-        gl.clear_color(0.1, 0.2, 0.3, 1.0);
+        let (gl, mut window, mut event_pump, _context) = create_sdl2_context();
+        //window.subsystem().gl_set_swap_interval(SwapInterval::VSync).print_err();
 
         let skybox_program =
             create_program(&gl, VERTEX_SHADER_CUBE_SOURCE, FRAGMENT_SHADER_CUBE_SOURCE);
@@ -58,10 +54,8 @@ fn main() {
 
         'render: loop {
             {
-                for event in events_loop.poll_iter() {
-                    if let sdl2::event::Event::Quit { .. } = event {
-                        break 'render;
-                    }
+                if let ShouldQuit(true) = handle_events(&mut window, &mut event_pump) {
+                    break 'render;
                 }
             }
             let (width, height) = window.drawable_size();
@@ -70,19 +64,15 @@ fn main() {
 
             gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
 
-            gl.use_program(Some(program));
-            gl.bind_vertex_array(Some(vao));
-            gl.draw_arrays(glow::TRIANGLES, 0, 3);
-            gl.bind_vertex_array(None);
-
             gl.depth_mask(false);
             gl.use_program(Some(skybox_program));
-            let fov = 90.0f32;
+            // minecraft uses 85.0 fov
+            let fov = 85.0f32;
             let projection = Mat4::perspective_rh_gl(fov.to_radians(), aspect_ratio, 0.1, 100.0);
 
-            let target = Quat::from_rotation_y(theta) * Vec3::Z;
+            let target = Quat::from_rotation_y(theta) * Quat::from_rotation_x(30.0f32.to_radians()) * Vec3::Z;
             let camera_view = Mat4::look_at_rh(Vec3::ZERO, target, Vec3::Y);
-            theta -= 0.001;
+            theta -= 0.003;
 
             let view = Mat4::from_mat3(Mat3::from_mat4(camera_view));
             let proj_loc = gl.get_uniform_location(skybox_program, "projection");
@@ -100,11 +90,8 @@ fn main() {
             gl.depth_mask(true);
 
             window.gl_swap_window();
+            std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 30));
         }
-
-        gl.delete_program(program);
-        gl.delete_vertex_array(vao);
-        gl.delete_buffer(vbo);
 
         gl.delete_program(skybox_program);
         gl.delete_vertex_array(skybox_vao);
@@ -189,56 +176,6 @@ unsafe fn create_program(
     program
 }
 
-unsafe fn create_vertex_buffer(gl: &glow::Context) -> (NativeBuffer, NativeVertexArray) {
-    // This is a flat array of f32s that are to be interpreted as vec2s.
-    let triangle_vertices = [0.5f32, 1.0f32, 0.0f32, 0.0f32, 1.0f32, 0.0f32];
-    let triangle_vertices_u8: &[u8] = unsafe {
-        core::slice::from_raw_parts(
-            triangle_vertices.as_ptr() as *const u8,
-            triangle_vertices.len() * core::mem::size_of::<f32>(),
-        )
-    };
-
-    // We construct a buffer and upload the data
-    unsafe {
-        let vbo = gl.create_buffer().unwrap();
-        gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
-        gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, triangle_vertices_u8, glow::STATIC_DRAW);
-
-        // We now construct a vertex array to describe the format of the input buffer
-        let vao = gl.create_vertex_array().unwrap();
-        gl.bind_vertex_array(Some(vao));
-        gl.enable_vertex_attrib_array(0);
-        gl.vertex_attrib_pointer_f32(0, 2, glow::FLOAT, false, 8, 0);
-
-        (vbo, vao)
-    }
-}
-
-unsafe fn set_uniform(gl: &glow::Context, program: NativeProgram, name: &str, value: f32) {
-    unsafe {
-        let uniform_location = gl.get_uniform_location(program, name);
-        // See also `uniform_n_i32`, `uniform_n_u32`, `uniform_matrix_4_f32_slice` etc.
-        gl.uniform_1_f32(uniform_location.as_ref(), value)
-    }
-}
-
-const VERTEX_SHADER_SOURCE: &str = r#"#version 330
-  in vec2 in_position;
-  out vec2 position;
-  void main() {
-    position = in_position;
-    gl_Position = vec4(in_position - 0.5, 0.0, 3.0);
-  }"#;
-const FRAGMENT_SHADER_SOURCE: &str = r#"#version 330
-  precision mediump float;
-  in vec2 position;
-  out vec4 color;
-  uniform float blue;
-  void main() {
-    color = vec4(position, blue, 1.0);
-  }"#;
-
 const VERTICES: [f32; 24] = [
     -1.0, 1.0, -1.0, // Front top left
     -1.0, -1.0, -1.0, // Front bottom left
@@ -275,3 +212,26 @@ uniform samplerCube skybox;
 void main() {
   FragColor = texture(skybox, TexCoords);
 }"#;
+
+struct ShouldQuit(bool);
+
+fn handle_events(window: &mut Window, event_pump: &mut EventPump) -> ShouldQuit {
+    use sdl2::keyboard::Keycode;
+    for event in event_pump.poll_iter() {
+        match event {
+            Event::KeyDown {
+                keycode: Some(Keycode::ESCAPE),
+                ..
+            }
+            | Event::Quit { .. } => return ShouldQuit(true),
+            Event::KeyDown { keycode: Some(Keycode::F11), ..} => {
+                match window.fullscreen_state() {
+                    sdl2::video::FullscreenType::Off => window.set_fullscreen(sdl2::video::FullscreenType::Desktop),
+                    _ => window.set_fullscreen(sdl2::video::FullscreenType::Off),
+                }.print_err();
+            }
+            _ => {}
+        }
+    }
+    ShouldQuit(false)
+}

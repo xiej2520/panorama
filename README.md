@@ -3,6 +3,9 @@
 ## Building
 
 ```sh
+cargo run --release
+
+# with nix
 nix build
 nix run
 

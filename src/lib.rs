@@ -11,3 +11,14 @@ impl<T, E: std::fmt::Display> ExpectErr<T> for Result<T, E> {
         }
     }
 }
+
+pub trait PrintErr {
+    fn print_err(self);
+}
+
+impl<E: std::fmt::Display> PrintErr for Result<(), E> {
+    fn print_err(self) {
+        let _ = self.inspect_err(|e| println!("{e}"));
+        ()
+    }
+}
