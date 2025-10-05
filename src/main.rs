@@ -1,3 +1,4 @@
+use std::f32::consts::PI;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -51,6 +52,11 @@ fn main() {
         gl.enable(glow::DEPTH_TEST);
 
         let mut theta = 0.0f32;
+        let fps_target = 30;
+        let frame_sleep_time_ns = 1_000_000_000u32 / fps_target;
+        // minecraft panorama rotates once every 90 seconds at default speed
+        let period = 90.0;
+        let dtheta = -2.0 * PI / (period * fps_target as f32);
 
         'render: loop {
             {
@@ -72,7 +78,7 @@ fn main() {
 
             let target = Quat::from_rotation_y(theta) * Quat::from_rotation_x(30.0f32.to_radians()) * Vec3::Z;
             let camera_view = Mat4::look_at_rh(Vec3::ZERO, target, Vec3::Y);
-            theta -= 0.003;
+            theta += dtheta;
 
             let view = Mat4::from_mat3(Mat3::from_mat4(camera_view));
             let proj_loc = gl.get_uniform_location(skybox_program, "projection");
@@ -90,7 +96,7 @@ fn main() {
             gl.depth_mask(true);
 
             window.gl_swap_window();
-            std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 30));
+            std::thread::sleep(Duration::new(0, frame_sleep_time_ns));
         }
 
         gl.delete_program(skybox_program);
