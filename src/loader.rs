@@ -6,12 +6,12 @@ use crate::ExpectErr;
 
 pub fn create_faces(root: &Path) -> Faces {
     Faces {
-        right: root.join("panorama_1.png"),
-        left: root.join("panorama_3.png"),
-        top: root.join("panorama_4.png"),
-        bottom: root.join("panorama_5.png"),
-        front: root.join("panorama_0.png"),
-        back: root.join("panorama_2.png"),
+        right: root.join("panorama_3.png"),  // +x
+        left: root.join("panorama_1.png"),   // -x
+        top: root.join("panorama_4.png"),    // +y
+        bottom: root.join("panorama_5.png"), // -y
+        back: root.join("panorama_0.png"),   // +z
+        front: root.join("panorama_2.png"),  // -z
     }
 }
 
@@ -20,11 +20,11 @@ pub struct Faces {
     left: PathBuf,
     top: PathBuf,
     bottom: PathBuf,
-    front: PathBuf,
     back: PathBuf,
+    front: PathBuf,
 }
 
-struct FaceIter<'a> {
+pub struct FaceIter<'a> {
     faces: &'a Faces,
     index: u8,
 }
@@ -38,8 +38,8 @@ impl<'a> Iterator for FaceIter<'a> {
             1 => Some(self.faces.left.as_path()),
             2 => Some(self.faces.top.as_path()),
             3 => Some(self.faces.bottom.as_path()),
-            4 => Some(self.faces.front.as_path()),
-            5 => Some(self.faces.back.as_path()),
+            4 => Some(self.faces.back.as_path()),
+            5 => Some(self.faces.front.as_path()),
             _ => None,
         };
         self.index += 1;
@@ -48,7 +48,7 @@ impl<'a> Iterator for FaceIter<'a> {
 }
 
 impl Faces {
-    fn iter(&self) -> FaceIter<'_> {
+    pub fn iter(&self) -> FaceIter<'_> {
         FaceIter {
             faces: self,
             index: 0,
@@ -65,6 +65,8 @@ pub fn load_cubemap(gl: &glow::Context, faces: Faces) -> NativeTexture {
                 .unwrap_or_else(|_| panic!("Failed to open '{}'", face.display()))
                 .decode()
                 .unwrap_or_else(|_| panic!("Failed to decode image '{}'", face.display()));
+            // FLIP CUBEMAP HORIONTALLY SINCE WE ARE INSIDE THE SKYBOX
+            let img = img.fliph();
             let img = img.to_rgb8();
             let (width, height) = img.dimensions();
             let data = img.into_raw();

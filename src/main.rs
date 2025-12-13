@@ -4,11 +4,11 @@ use std::time::Duration;
 
 use glam::{Mat3, Mat4, Quat, Vec3};
 use glow::*;
-use panorama::{ExpectErr, PrintErr};
 use panorama::loader::{create_faces, load_cubemap};
+use panorama::{ExpectErr, PrintErr};
 use sdl2::EventPump;
 use sdl2::event::Event;
-use sdl2::video::{Window};
+use sdl2::video::Window;
 
 fn main() {
     unsafe {
@@ -46,16 +46,17 @@ fn main() {
 
         gl.active_texture(glow::TEXTURE0);
         gl.bind_texture(glow::TEXTURE_CUBE_MAP, Some(cubemap_texture));
-        let location = gl.get_uniform_location(skybox_program, "skybox");
-        gl.uniform_1_i32(location.as_ref(), 0);
+        let skybox_loc = gl.get_uniform_location(skybox_program, "skybox");
+        gl.uniform_1_i32(skybox_loc.as_ref(), 0);
 
-        gl.enable(glow::DEPTH_TEST);
+        //gl.enable(glow::DEPTH_TEST);
 
         let mut theta = 0.0f32;
         let fps_target = 30;
         let frame_sleep_time_ns = 1_000_000_000u32 / fps_target;
         // minecraft panorama rotates once every 90 seconds at default speed
-        let period = 90.0;
+        //let period = 90.0;
+        let period = 20.0;
         let dtheta = -2.0 * PI / (period * fps_target as f32);
 
         'render: loop {
@@ -76,11 +77,15 @@ fn main() {
             let fov = 85.0f32;
             let projection = Mat4::perspective_rh_gl(fov.to_radians(), aspect_ratio, 0.1, 100.0);
 
-            let target = Quat::from_rotation_y(theta) * Quat::from_rotation_x(30.0f32.to_radians()) * Vec3::Z;
+            let target = Quat::from_rotation_y(theta)
+                * Quat::from_rotation_x(30.0f32.to_radians())
+                * Vec3::Z;
             let camera_view = Mat4::look_at_rh(Vec3::ZERO, target, Vec3::Y);
             theta += dtheta;
 
+            // remove translation
             let view = Mat4::from_mat3(Mat3::from_mat4(camera_view));
+
             let proj_loc = gl.get_uniform_location(skybox_program, "projection");
             let view_loc = gl.get_uniform_location(skybox_program, "view");
             gl.uniform_matrix_4_f32_slice(proj_loc.as_ref(), false, &projection.to_cols_array());
@@ -89,8 +94,8 @@ fn main() {
             gl.bind_vertex_array(Some(skybox_vao));
             gl.active_texture(glow::TEXTURE0);
             gl.bind_texture(glow::TEXTURE_CUBE_MAP, Some(cubemap_texture));
-            let location = gl.get_uniform_location(skybox_program, "skybox");
-            gl.uniform_1_i32(location.as_ref(), 0);
+            let skybox_loc = gl.get_uniform_location(skybox_program, "skybox");
+            gl.uniform_1_i32(skybox_loc.as_ref(), 0);
             gl.draw_elements(glow::TRIANGLES, INDICES.len() as i32, glow::UNSIGNED_INT, 0);
             gl.bind_vertex_array(None);
             gl.depth_mask(true);
@@ -121,7 +126,7 @@ fn create_sdl2_context() -> (
     gl_attr.set_context_version(3, 3);
     gl_attr.set_context_flags().forward_compatible().set();
     let window = video
-        .window("Hello triangle!", 1024, 768)
+        .window("Panorama", 1024, 768)
         .opengl()
         .resizable()
         .build()
@@ -182,39 +187,44 @@ unsafe fn create_program(
     program
 }
 
+#[rustfmt::skip]
 const VERTICES: [f32; 24] = [
-    -1.0, 1.0, -1.0, // Front top left
-    -1.0, -1.0, -1.0, // Front bottom left
-    1.0, -1.0, -1.0, // Front bottom right
-    1.0, 1.0, -1.0, // Front top right
-    -1.0, 1.0, 1.0, // Back top left
-    -1.0, -1.0, 1.0, // Back bottom left
-    1.0, -1.0, 1.0, // Back bottom right
-    1.0, 1.0, 1.0, // Back top right
+    -1.0, 1.0, -1.0,  // front top    left
+    -1.0, -1.0, -1.0, // front bottom left
+    1.0, -1.0, -1.0,  // front bottom right
+    1.0, 1.0, -1.0,   // front top    right
+    -1.0, 1.0, 1.0,   // back  top    left
+    -1.0, -1.0, 1.0,  // back  bottom left
+    1.0, -1.0, 1.0,   // back  bottom right
+    1.0, 1.0, 1.0,    // back  top    right
 ];
 
 const INDICES: [u32; 36] = [
-    0, 1, 2, 0, 2, 3, // Front face
-    4, 5, 6, 4, 6, 7, // Back face
-    4, 5, 1, 4, 1, 0, // Left face
-    3, 2, 6, 3, 6, 7, // Right face
-    4, 0, 3, 4, 3, 7, // Top face
-    1, 5, 6, 1, 6, 2, // Bottom face
+    0, 1, 2, 0, 2, 3, // front face
+    4, 5, 6, 4, 6, 7, // back face
+    4, 5, 1, 4, 1, 0, // left face
+    3, 2, 6, 3, 6, 7, // right face
+    4, 0, 3, 4, 3, 7, // top face
+    1, 5, 6, 1, 6, 2, // bottom face
 ];
 
 const VERTEX_SHADER_CUBE_SOURCE: &str = r#"#version 330
 layout (location = 0) in vec3 aPos;
 out vec3 TexCoords;
+
 uniform mat4 projection;
 uniform mat4 view;
+
 void main() {
-  TexCoords = aPos;  
+  TexCoords = aPos;
   gl_Position = projection * view * vec4(aPos, 1.0);
 }"#;
 const FRAGMENT_SHADER_CUBE_SOURCE: &str = r#"#version 330
 out vec4 FragColor;
+
 in vec3 TexCoords;
 uniform samplerCube skybox;
+
 void main() {
   FragColor = texture(skybox, TexCoords);
 }"#;
@@ -230,11 +240,17 @@ fn handle_events(window: &mut Window, event_pump: &mut EventPump) -> ShouldQuit 
                 ..
             }
             | Event::Quit { .. } => return ShouldQuit(true),
-            Event::KeyDown { keycode: Some(Keycode::F11), ..} => {
+            Event::KeyDown {
+                keycode: Some(Keycode::F11),
+                ..
+            } => {
                 match window.fullscreen_state() {
-                    sdl2::video::FullscreenType::Off => window.set_fullscreen(sdl2::video::FullscreenType::Desktop),
+                    sdl2::video::FullscreenType::Off => {
+                        window.set_fullscreen(sdl2::video::FullscreenType::Desktop)
+                    }
                     _ => window.set_fullscreen(sdl2::video::FullscreenType::Off),
-                }.print_err();
+                }
+                .print_err();
             }
             _ => {}
         }
