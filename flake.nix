@@ -25,7 +25,7 @@
         ];
 
         nativeBuildInputs = with pkgs; [
-
+          llvmPackages.bintools # lld
         ];
       in
       rec {
@@ -57,6 +57,7 @@
             ++ buildInputs
             ++ nativeBuildInputs;
           RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";
+          RUSTFLAGS = "-Clink-arg=-fuse-ld=lld";
         };
       }
     );

@@ -73,12 +73,12 @@ fn main() {
 
             gl.depth_mask(false);
             gl.use_program(Some(skybox_program));
-            // minecraft uses 85.0 fov
+            // minecraft uses 85.0 fov for panorama in 1.21.11
             let fov = 85.0f32;
             let projection = Mat4::perspective_rh_gl(fov.to_radians(), aspect_ratio, 0.1, 100.0);
 
             let target = Quat::from_rotation_y(theta)
-                * Quat::from_rotation_x(30.0f32.to_radians())
+                * Quat::from_rotation_x(10.0f32.to_radians())
                 * Vec3::Z;
             let camera_view = Mat4::look_at_rh(Vec3::ZERO, target, Vec3::Y);
             theta += dtheta;
