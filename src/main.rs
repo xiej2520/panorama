@@ -1,14 +1,12 @@
-use std::f32::consts::PI;
-use std::path::PathBuf;
-use std::time::Duration;
+use std::{f32::consts::PI, path::PathBuf, time::Duration};
 
 use glam::{Mat3, Mat4, Quat, Vec3};
 use glow::*;
-use panorama::loader::{create_faces, load_cubemap};
-use panorama::{ExpectErr, PrintErr};
-use sdl2::EventPump;
-use sdl2::event::Event;
-use sdl2::video::Window;
+use panorama::{
+    ExpectErr, PrintErr,
+    loader::{create_faces, load_cubemap},
+};
+use sdl2::{EventPump, event::Event, video::Window};
 
 fn main() {
     unsafe {
@@ -59,6 +57,9 @@ fn main() {
         let period = 20.0;
         let dtheta = -2.0 * PI / (period * fps_target as f32);
 
+        let (width, height) = window.drawable_size();
+        let mut video_writer = Some(VideoWriter::new(width, height, "output.mp4"));
+
         'render: loop {
             {
                 if let ShouldQuit(true) = handle_events(&mut window, &mut event_pump) {
@@ -101,6 +102,26 @@ fn main() {
             gl.depth_mask(true);
 
             window.gl_swap_window();
+
+            let mut buffer: Vec<u8> = vec![0; (width * height * 4) as usize]; // 4 RGBA
+            gl.read_pixels(
+                0,
+                0,
+                width as i32,
+                height as i32,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                PixelPackData::Slice(Some(&mut buffer)),
+            );
+
+            if theta < -2.0 * PI
+                && let Some(video_writer) = video_writer.take()
+            {
+                video_writer.finish();
+            } else if let Some(video_writer) = &mut video_writer {
+                video_writer.write_frame(&buffer);
+            }
+
             std::thread::sleep(Duration::new(0, frame_sleep_time_ns));
         }
 
@@ -256,4 +277,46 @@ fn handle_events(window: &mut Window, event_pump: &mut EventPump) -> ShouldQuit 
         }
     }
     ShouldQuit(false)
+}
+
+pub struct VideoWriter {
+    ffmpeg: std::process::Child,
+    stdin: std::process::ChildStdin,
+}
+
+impl VideoWriter {
+    pub fn new(width: u32, height: u32, output: &str) -> Self {
+        #[rustfmt::skip]
+        let mut ffmpeg = std::process::Command::new("ffmpeg")
+            .args([
+                "-y",                     // overwrite output
+                "-f", "rawvideo",
+                "-pix_fmt", "rgba",
+                "-s", &format!("{}x{}", width, height),
+                "-r", "60",               // frame rate
+                "-i", "-",
+                "-c:v", "libx264",
+                "-preset", "slow",
+                "-crf", "20",
+                "-pix_fmt", "yuv420p",    // required for mp4 compatibility
+                "-vf", "vflip", // flip vertically
+                output,
+            ])
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .expect("Failed to start ffmpeg");
+
+        let stdin = ffmpeg.stdin.take().expect("Failed to open stdin");
+
+        Self { ffmpeg, stdin }
+    }
+
+    pub fn write_frame(&mut self, frame: &[u8]) {
+        std::io::Write::write_all(&mut self.stdin, frame).expect("Failed to write frame");
+    }
+
+    pub fn finish(mut self) {
+        drop(self.stdin); // VERY IMPORTANT: signals EOF to ffmpeg
+        self.ffmpeg.wait().expect("ffmpeg failed");
+    }
 }

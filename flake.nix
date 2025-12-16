@@ -1,14 +1,19 @@
 {
   inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     naersk.url = "github:nix-community/naersk";
-    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    fenix = {
+      url = "github:nix-community/fenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
   outputs =
     {
       self,
       flake-utils,
       naersk,
+      fenix,
       nixpkgs,
     }:
     flake-utils.lib.eachDefaultSystem (
@@ -19,6 +24,13 @@
         };
 
         naersk' = pkgs.callPackage naersk { };
+        toolchain = with fenix.packages.${system}; combine [
+          stable.cargo
+          stable.rustc
+          stable.rust-src
+          stable.clippy
+          latest.rustfmt # nightly rustfmt
+        ];
 
         buildInputs = with pkgs; [
           SDL2
@@ -49,10 +61,7 @@
             with pkgs;
             [
               nixpkgs-fmt
-              rustc
-              cargo
-              clippy
-              rustfmt
+              toolchain
             ]
             ++ buildInputs
             ++ nativeBuildInputs;
