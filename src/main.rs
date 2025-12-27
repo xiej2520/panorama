@@ -3,10 +3,7 @@ use std::{f32::consts::PI, path::PathBuf, time::Duration};
 use argh::FromArgs;
 use glam::{Mat3, Mat4, Quat, Vec3};
 use glow::*;
-use panorama::{
-    ExpectErr, PrintErr,
-    loader::{create_faces, load_cubemap}, recorder::VideoWriter,
-};
+use panorama::{ExpectErr, PrintErr, loader::load_cubemap, recorder::VideoWriter};
 use sdl2::{EventPump, event::Event, video::Window};
 
 #[derive(FromArgs)]
@@ -56,7 +53,7 @@ fn main() {
 
         gl.bind_vertex_array(None);
 
-        let cubemap_texture = load_cubemap(&gl, create_faces(&path));
+        let cubemap_texture = load_cubemap(&gl, &path);
 
         gl.active_texture(glow::TEXTURE0);
         gl.bind_texture(glow::TEXTURE_CUBE_MAP, Some(cubemap_texture));
