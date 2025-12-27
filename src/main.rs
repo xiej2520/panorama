@@ -3,6 +3,7 @@ use std::{path::PathBuf, time::Duration};
 use argh::FromArgs;
 use glam::{Mat4, Vec3};
 use glow::*;
+use image::GenericImageView;
 use panorama::{ExpectErr, PrintErr, camera::Camera, loader::load_cubemap, recorder::VideoWriter};
 use sdl2::{EventPump, event::Event, video::Window};
 
@@ -54,8 +55,6 @@ fn main() {
         gl.bind_vertex_array(None);
 
         let cubemap_texture = load_cubemap(&gl, &path);
-
-        gl.active_texture(glow::TEXTURE0);
         gl.bind_texture(glow::TEXTURE_CUBE_MAP, Some(cubemap_texture));
         let skybox_loc = gl.get_uniform_location(skybox_program, "skybox");
         gl.uniform_1_i32(skybox_loc.as_ref(), 0);
@@ -78,6 +77,45 @@ fn main() {
         let frame_sleep_time_ns = 1_000_000_000u32 / state.fps_target;
 
         state.camera.reset_panorama_options();
+
+        gl.enable(glow::BLEND);
+        gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
+        let overlay_texture = {
+            let path = format!("panorama_overlay.png");
+            let image = image::ImageReader::open(&path)
+                .map_err(|e| format!("failed to open image {path}: {e}").into_boxed_str())
+                .unwrap()
+                .decode()
+                .unwrap().flipv();
+            let (width, height) = image.dimensions();
+            let overlay_texture = gl.create_texture().expect_else_err();
+            gl.bind_texture(glow::TEXTURE_2D, Some(overlay_texture));
+
+        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
+        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
+        gl.tex_parameter_i32(
+            glow::TEXTURE_2D,
+            glow::TEXTURE_MIN_FILTER,
+            glow::NEAREST as i32,
+        );
+        gl.tex_parameter_i32(
+            glow::TEXTURE_2D,
+            glow::TEXTURE_MAG_FILTER,
+            glow::NEAREST as i32,
+        );
+            gl.tex_image_2d(
+                glow::TEXTURE_2D,
+                0,
+                glow::RGBA as i32,
+                width as i32,
+                height as i32,
+                0,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                PixelUnpackData::Slice(Some(&image.to_rgba8().into_raw())),
+            );
+            overlay_texture
+        };
 
         'render: loop {
             handle_events(&mut window, &mut event_pump, &mut state);
@@ -124,6 +162,15 @@ fn main() {
 
             gl.draw_elements(glow::TRIANGLES, INDICES.len() as i32, glow::UNSIGNED_INT, 0);
             gl.bind_vertex_array(None);
+            
+
+            let resolution_loc = gl.get_uniform_location(skybox_program, "screenResolution");
+            gl.uniform_2_f32_slice(resolution_loc.as_ref(), &[width as f32, height as f32]);
+            
+            gl.active_texture(glow::TEXTURE1);
+            gl.bind_texture(glow::TEXTURE_2D, Some(overlay_texture));
+            let overlay_loc = gl.get_uniform_location(skybox_program, "overlay");
+            gl.uniform_1_i32(overlay_loc.as_ref(), 1);
 
             window.gl_swap_window();
 
