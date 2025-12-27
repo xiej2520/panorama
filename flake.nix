@@ -66,7 +66,7 @@
             ++ buildInputs
             ++ nativeBuildInputs;
           RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";
-          RUSTFLAGS = "-Clink-arg=-fuse-ld=lld";
+          RUSTFLAGS = "-Clink-arg=-fuse-ld=lld -Clink-self-contained=-linker";
         };
       }
     );

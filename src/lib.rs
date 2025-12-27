@@ -1,4 +1,5 @@
 pub mod loader;
+pub mod recorder;
 
 pub trait ExpectErr<T> {
     fn expect_else_err(self) -> T;
