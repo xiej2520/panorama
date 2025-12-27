@@ -19,7 +19,9 @@ pub trait PrintErr {
 
 impl<E: std::fmt::Display> PrintErr for Result<(), E> {
     fn print_err(self) {
-        let _ = self.inspect_err(|e| println!("{e}"));
-        ()
+        match self {
+            Ok(()) => {}
+            Err(e) => println!("{e}"),
+        }
     }
 }

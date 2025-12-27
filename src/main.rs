@@ -1,7 +1,7 @@
 use std::{f32::consts::PI, path::PathBuf, time::Duration};
 
 use argh::FromArgs;
-use glam::{Mat3, Mat4, Quat, Vec3};
+use glam::{Mat4, Quat, Vec3};
 use glow::*;
 use panorama::{ExpectErr, PrintErr, loader::load_cubemap, recorder::VideoWriter};
 use sdl2::{EventPump, event::Event, video::Window};
@@ -99,11 +99,8 @@ fn main() {
             let target = Quat::from_rotation_y(theta)
                 * Quat::from_rotation_x(10.0f32.to_radians())
                 * Vec3::Z;
-            let camera_view = Mat4::look_at_rh(Vec3::ZERO, target, Vec3::Y);
+            let view = Mat4::look_at_rh(Vec3::ZERO, target, Vec3::Y);
             theta += dtheta;
-
-            // remove translation
-            let view = Mat4::from_mat3(Mat3::from_mat4(camera_view));
 
             let proj_loc = gl.get_uniform_location(skybox_program, "projection");
             let view_loc = gl.get_uniform_location(skybox_program, "view");
@@ -243,26 +240,8 @@ const INDICES: [u32; 36] = [
     1, 5, 6, 1, 6, 2, // bottom face
 ];
 
-const VERTEX_SHADER_CUBE_SOURCE: &str = r#"#version 330
-layout (location = 0) in vec3 aPos;
-out vec3 TexCoords;
-
-uniform mat4 projection;
-uniform mat4 view;
-
-void main() {
-  TexCoords = aPos;
-  gl_Position = projection * view * vec4(aPos, 1.0);
-}"#;
-const FRAGMENT_SHADER_CUBE_SOURCE: &str = r#"#version 330
-out vec4 FragColor;
-
-in vec3 TexCoords;
-uniform samplerCube skybox;
-
-void main() {
-  FragColor = texture(skybox, TexCoords);
-}"#;
+const VERTEX_SHADER_CUBE_SOURCE: &str = include_str!("shader.vs");
+const FRAGMENT_SHADER_CUBE_SOURCE: &str = include_str!("shader.fs");
 
 struct State {
     should_quit: bool,
