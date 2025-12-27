@@ -61,6 +61,29 @@ impl PanoramaPath {
         })
     }
 
+    fn load_image(&self, path: &str) -> Result<DynamicImage, Box<str>> {
+        let decode = match self.path_type {
+            PanoramaPathType::BaseFolder => ImageReader::open(self.root.join(&path))
+                .map_err(|e| format!("failed to open image {path}: {e}").into_boxed_str())?
+                .decode(),
+            PanoramaPathType::PackFolder => ImageReader::open(self.root.join(&path))
+                .map_err(|e| format!("failed to open image {path}: {e}").into_boxed_str())?
+                .decode(),
+            PanoramaPathType::PackZip => {
+                let reader = BufReader::new(File::open(&self.root).map_err(|e| e.to_string())?);
+                let mut zip = ZipArchive::new(reader).map_err(|e| e.to_string())?;
+                let mut zip_file = zip.by_name(path).map_err(|e| e.to_string())?;
+                use std::io::{Cursor, Read};
+                let mut buf = vec![];
+                zip_file.read_to_end(&mut buf).map_err(|e| e.to_string())?;
+                let mut img = ImageReader::new(Cursor::new(&buf));
+                img.set_format(image::ImageFormat::Png);
+                img.decode()
+            }
+        };
+        decode.map_err(|e| format!("failed to decode image: {e}").into_boxed_str())
+    }
+
     pub fn iter(&self) -> PanoramaImageIter<'_> {
         PanoramaImageIter {
             path: self,
@@ -87,55 +110,24 @@ fn map_texture_number_to_file_number(texture_number: u8) -> Option<i32> {
     })
 }
 
-impl<'a> PanoramaImageIter<'a> {
-    // try block
-    fn load_image(&mut self, image_number: i32) -> Result<DynamicImage, Box<str>> {
-        let decode = match self.path.path_type {
-            PanoramaPathType::BaseFolder => {
-                let path = format!("panorama_{image_number}.png");
-                ImageReader::open(self.path.root.join(&path))
-                    .map_err(|e| format!("failed to open image {path}: {e}").into_boxed_str())?
-                    .decode()
-            }
-            PanoramaPathType::PackFolder => {
-                let path = format!("{PATH_IN_PACK}/panorama_{image_number}.png");
-                ImageReader::open(self.path.root.join(&path))
-                    .map_err(|e| format!("failed to open image {path}: {e}").into_boxed_str())?
-                    .decode()
-            }
-            PanoramaPathType::PackZip => {
-                let reader =
-                    BufReader::new(File::open(&self.path.root).map_err(|e| e.to_string())?);
-                let mut zip = ZipArchive::new(reader).map_err(|e| e.to_string())?;
-                let mut zip_file = zip
-                    .by_name(&format!("{PATH_IN_PACK}/panorama_{image_number}.png"))
-                    .map_err(|e| e.to_string())?;
-                use std::io::{Cursor, Read};
-                let mut buf = vec![];
-                zip_file.read_to_end(&mut buf).map_err(|e| e.to_string())?;
-                let mut img = ImageReader::new(Cursor::new(&buf));
-                img.set_format(image::ImageFormat::Png);
-                img.decode()
-            }
-        };
-        decode.map_err(|e| format!("failed to decode image: {e}").into_boxed_str())
-    }
-}
-
 impl<'a> Iterator for PanoramaImageIter<'a> {
     type Item = Result<DynamicImage, Box<str>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let image_number = map_texture_number_to_file_number(self.index)?;
-        let img = self.load_image(image_number);
+        let path = match self.path.path_type {
+            PanoramaPathType::BaseFolder => format!("panorama_{image_number}.png"),
+            PanoramaPathType::PackFolder | PanoramaPathType::PackZip => {
+                format!("{PATH_IN_PACK}/panorama_{image_number}.png")
+            }
+        };
+        let img = self.path.load_image(&path);
         self.index += 1;
         Some(img)
     }
 }
 
-pub fn load_cubemap(gl: &glow::Context, path: &Path) -> NativeTexture {
-    let paths = PanoramaPath::find_paths(path)
-        .unwrap_or_else(|e| panic!("expected to find panorama_<0 to 5>.png: {e}"));
+pub fn load_cubemap(gl: &glow::Context, paths: &PanoramaPath) -> NativeTexture {
     unsafe {
         let texture = gl.create_texture().expect_else_err();
         gl.bind_texture(glow::TEXTURE_CUBE_MAP, Some(texture));
@@ -198,5 +190,55 @@ pub fn load_cubemap(gl: &glow::Context, path: &Path) -> NativeTexture {
         // why mipmap set distance cube map
         //gl.generate_mipmap(glow::TEXTURE_CUBE_MAP);
         texture
+    }
+}
+
+pub fn load_overlay(gl: &glow::Context, paths: &PanoramaPath) -> Option<NativeTexture> {
+    let path = match paths.path_type {
+        PanoramaPathType::BaseFolder => format!("panorama_overlay.png"),
+        PanoramaPathType::PackFolder | PanoramaPathType::PackZip => {
+            format!("{PATH_IN_PACK}/panorama_overlay.png")
+        }
+    };
+    let image = paths.load_image(&path).ok()?.flipv();
+
+    let (width, height) = image.dimensions();
+    unsafe {
+        let overlay_texture = gl.create_texture().expect_else_err();
+        gl.bind_texture(glow::TEXTURE_2D, Some(overlay_texture));
+
+        gl.tex_parameter_i32(
+            glow::TEXTURE_2D,
+            glow::TEXTURE_WRAP_S,
+            glow::CLAMP_TO_EDGE as i32,
+        );
+        gl.tex_parameter_i32(
+            glow::TEXTURE_2D,
+            glow::TEXTURE_WRAP_T,
+            glow::CLAMP_TO_EDGE as i32,
+        );
+        gl.tex_parameter_i32(
+            glow::TEXTURE_2D,
+            glow::TEXTURE_MIN_FILTER,
+            glow::NEAREST as i32,
+        );
+        gl.tex_parameter_i32(
+            glow::TEXTURE_2D,
+            glow::TEXTURE_MAG_FILTER,
+            glow::NEAREST as i32,
+        );
+        gl.tex_image_2d(
+            glow::TEXTURE_2D,
+            0,
+            glow::RGBA as i32,
+            width as i32,
+            height as i32,
+            0,
+            glow::RGBA,
+            glow::UNSIGNED_BYTE,
+            PixelUnpackData::Slice(Some(&image.to_rgba8().into_raw())),
+        );
+        println!("Loaded 'panorama_overlay.png': {width}x{height}",);
+        Some(overlay_texture)
     }
 }
