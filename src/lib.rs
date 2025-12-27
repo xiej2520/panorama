@@ -1,3 +1,4 @@
+pub mod camera;
 pub mod loader;
 pub mod recorder;
 

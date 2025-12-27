@@ -1,9 +1,9 @@
-use std::{f32::consts::PI, path::PathBuf, time::Duration};
+use std::{path::PathBuf, time::Duration};
 
 use argh::FromArgs;
-use glam::{Mat4, Quat, Vec3};
+use glam::{Mat4, Vec3};
 use glow::*;
-use panorama::{ExpectErr, PrintErr, loader::load_cubemap, recorder::VideoWriter};
+use panorama::{ExpectErr, PrintErr, camera::Camera, loader::load_cubemap, recorder::VideoWriter};
 use sdl2::{EventPump, event::Event, video::Window};
 
 #[derive(FromArgs)]
@@ -62,26 +62,30 @@ fn main() {
 
         // inside cube, don't need depth test
         //gl.enable(glow::DEPTH_TEST);
+        //gl.depth_mask(false);
 
-        let mut theta = 0.0f32;
         let fps_target = args.fps;
         let frame_sleep_time_ns = 1_000_000_000u32 / fps_target;
-        // minecraft panorama rotates once every 90 seconds at default speed
-        //let period = 90.0;
-        let period = 20.0;
-        let dtheta = -2.0 * PI / (period * fps_target as f32);
+
+        let start_time = std::time::Instant::now();
 
         let mut state = State {
             should_quit: false,
+            last_time: start_time.elapsed(),
             video_writer: None,
+            camera: Camera::new(Vec3::ZERO, Vec3::Y, 0.0, 0.0),
+            auto_rotate: true,
         };
+        // minecraft uses 85.0 fov for panorama in 1.21.11
+        state.camera.fov = 85.0;
+        // minecraft panorama rotates once every 90 seconds at default speed
+        let period = 90.0;
+        state.camera.rotation_speed = 360.0 / period;
 
         'render: loop {
-            {
-                handle_events(&mut window, &mut event_pump, &mut state);
-                if state.should_quit {
-                    break 'render;
-                }
+            handle_events(&mut window, &mut event_pump, &mut state);
+            if state.should_quit {
+                break 'render;
             }
 
             let (width, height) = window.drawable_size();
@@ -90,17 +94,21 @@ fn main() {
 
             gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
 
-            gl.depth_mask(false);
             gl.use_program(Some(skybox_program));
-            // minecraft uses 85.0 fov for panorama in 1.21.11
-            let fov = 85.0f32;
-            let projection = Mat4::perspective_rh_gl(fov.to_radians(), aspect_ratio, 0.1, 100.0);
+            let projection =
+                Mat4::perspective_rh_gl(state.camera.fov.to_radians(), aspect_ratio, 0.1, 100.0);
 
-            let target = Quat::from_rotation_y(theta)
-                * Quat::from_rotation_x(10.0f32.to_radians())
-                * Vec3::Z;
-            let view = Mat4::look_at_rh(Vec3::ZERO, target, Vec3::Y);
-            theta += dtheta;
+            {
+                let time = start_time.elapsed();
+                if state.auto_rotate {
+                    state
+                        .camera
+                        .process_rotation((time - state.last_time).as_micros());
+                }
+                state.last_time = time;
+            }
+
+            let view = state.camera.view_matrix();
 
             let proj_loc = gl.get_uniform_location(skybox_program, "projection");
             let view_loc = gl.get_uniform_location(skybox_program, "view");
@@ -245,7 +253,10 @@ const FRAGMENT_SHADER_CUBE_SOURCE: &str = include_str!("shader.fs");
 
 struct State {
     should_quit: bool,
+    last_time: Duration,
     video_writer: Option<VideoWriter>,
+    camera: Camera,
+    auto_rotate: bool,
 }
 
 fn handle_events(window: &mut Window, event_pump: &mut EventPump, state: &mut State) {
@@ -279,6 +290,39 @@ fn handle_events(window: &mut Window, event_pump: &mut EventPump, state: &mut St
                     let (width, height) = window.drawable_size();
                     state.video_writer = Some(VideoWriter::new(width, height, "output.mp4"));
                 }
+            }
+            Event::KeyDown {
+                keycode: Some(Keycode::LEFT),
+                ..
+            } => {
+                state.camera.rotation_speed -= 0.5;
+            }
+            Event::KeyDown {
+                keycode: Some(Keycode::RIGHT),
+                ..
+            } => {
+                state.camera.rotation_speed += 0.5;
+            }
+            Event::KeyDown {
+                keycode: Some(Keycode::SPACE),
+                ..
+            } => {
+                state.auto_rotate = !state.auto_rotate;
+            }
+            Event::MouseMotion {
+                mousestate,
+                xrel,
+                yrel,
+                ..
+            } => {
+                if mousestate.is_mouse_button_pressed(sdl2::mouse::MouseButton::Right) {
+                    state
+                        .camera
+                        .process_mouse_movement(-xrel as f32, -yrel as f32);
+                }
+            }
+            Event::MouseWheel { precise_y, .. } => {
+                state.camera.process_mouse_scroll(precise_y);
             }
             _ => {}
         }
