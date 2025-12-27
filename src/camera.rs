@@ -81,6 +81,17 @@ impl Camera {
         self.right = self.forward.cross(self.world_up).normalize();
         self.up = self.right.cross(self.forward).normalize();
     }
+
+    pub fn reset_panorama_options(&mut self) {
+        self.yaw = 0.0;
+        self.pitch = 0.0;
+        // minecraft uses 85.0 fov for panorama in 1.21.11
+        self.fov = 85.0;
+        // minecraft panorama rotates once every 90 seconds at default speed
+        let period = 90.0;
+        self.rotation_speed = 360.0 / period;
+        self.update_vectors();
+    }
 }
 
 pub enum MoveDirection {

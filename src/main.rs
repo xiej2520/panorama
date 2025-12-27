@@ -64,23 +64,20 @@ fn main() {
         //gl.enable(glow::DEPTH_TEST);
         //gl.depth_mask(false);
 
-        let fps_target = args.fps;
-        let frame_sleep_time_ns = 1_000_000_000u32 / fps_target;
-
         let start_time = std::time::Instant::now();
 
         let mut state = State {
             should_quit: false,
-            last_time: start_time.elapsed(),
-            video_writer: None,
             camera: Camera::new(Vec3::ZERO, Vec3::Y, 0.0, 0.0),
             auto_rotate: true,
+
+            fps_target: args.fps,
+            last_time: start_time.elapsed(),
+            video_writer: None,
         };
-        // minecraft uses 85.0 fov for panorama in 1.21.11
-        state.camera.fov = 85.0;
-        // minecraft panorama rotates once every 90 seconds at default speed
-        let period = 90.0;
-        state.camera.rotation_speed = 360.0 / period;
+        let frame_sleep_time_ns = 1_000_000_000u32 / state.fps_target;
+
+        state.camera.reset_panorama_options();
 
         'render: loop {
             handle_events(&mut window, &mut event_pump, &mut state);
@@ -100,10 +97,14 @@ fn main() {
 
             {
                 let time = start_time.elapsed();
+                let delta_time_us = if state.video_writer.is_some() {
+                    // hack to get consistent frame time
+                    (1_000_000 / state.fps_target).into()
+                } else {
+                    (time - state.last_time).as_micros()
+                };
                 if state.auto_rotate {
-                    state
-                        .camera
-                        .process_rotation((time - state.last_time).as_micros());
+                    state.camera.process_rotation(delta_time_us);
                 }
                 state.last_time = time;
             }
@@ -127,18 +128,7 @@ fn main() {
             window.gl_swap_window();
 
             if let Some(video_writer) = state.video_writer.as_mut() {
-                let mut buffer: Vec<u8> = vec![0; (width * height * 4) as usize]; // 4 RGBA
-                gl.read_pixels(
-                    0,
-                    0,
-                    width as i32,
-                    height as i32,
-                    glow::RGBA,
-                    glow::UNSIGNED_BYTE,
-                    PixelPackData::Slice(Some(&mut buffer)),
-                );
-
-                video_writer.write_frame(&buffer);
+                video_writer.write_frame(&gl);
             }
 
             std::thread::sleep(Duration::new(0, frame_sleep_time_ns));
@@ -170,7 +160,7 @@ fn create_sdl2_context() -> (
         .opengl()
         .resizable()
         .build()
-        .unwrap();
+        .expect("Failed to build window");
     let gl_context = window.gl_create_context().unwrap();
     let gl = unsafe {
         glow::Context::from_loader_function(|s| match video.gl_get_proc_address(s) {
@@ -253,10 +243,13 @@ const FRAGMENT_SHADER_CUBE_SOURCE: &str = include_str!("shader.fs");
 
 struct State {
     should_quit: bool,
-    last_time: Duration,
-    video_writer: Option<VideoWriter>,
     camera: Camera,
     auto_rotate: bool,
+
+    fps_target: u32,
+
+    last_time: Duration,
+    video_writer: Option<VideoWriter>,
 }
 
 fn handle_events(window: &mut Window, event_pump: &mut EventPump, state: &mut State) {
@@ -264,51 +257,38 @@ fn handle_events(window: &mut Window, event_pump: &mut EventPump, state: &mut St
     for event in event_pump.poll_iter() {
         match event {
             Event::KeyDown {
-                keycode: Some(Keycode::ESCAPE),
+                keycode: Some(keycode),
                 ..
-            }
-            | Event::Quit { .. } => state.should_quit = true,
-            Event::KeyDown {
-                keycode: Some(Keycode::F11),
-                ..
-            } => {
-                match window.fullscreen_state() {
+            } => match keycode {
+                Keycode::ESCAPE => state.should_quit = true,
+                Keycode::F11 => match window.fullscreen_state() {
                     sdl2::video::FullscreenType::Off => {
                         window.set_fullscreen(sdl2::video::FullscreenType::Desktop)
                     }
                     _ => window.set_fullscreen(sdl2::video::FullscreenType::Off),
                 }
-                .print_err();
-            }
-            Event::KeyDown {
-                keycode: Some(Keycode::R),
-                ..
-            } => {
-                if let Some(video_writer) = state.video_writer.take() {
-                    video_writer.finish();
-                } else {
-                    let (width, height) = window.drawable_size();
-                    state.video_writer = Some(VideoWriter::new(width, height, "output.mp4"));
+                .print_err(),
+                Keycode::R => {
+                    if let Some(video_writer) = state.video_writer.take() {
+                        video_writer.finish();
+                    } else {
+                        let (width, height) = window.drawable_size();
+                        state.video_writer = Some(VideoWriter::new(
+                            width,
+                            height,
+                            "output.mp4",
+                            state.fps_target,
+                        ));
+                    }
                 }
-            }
-            Event::KeyDown {
-                keycode: Some(Keycode::LEFT),
-                ..
-            } => {
-                state.camera.rotation_speed -= 0.5;
-            }
-            Event::KeyDown {
-                keycode: Some(Keycode::RIGHT),
-                ..
-            } => {
-                state.camera.rotation_speed += 0.5;
-            }
-            Event::KeyDown {
-                keycode: Some(Keycode::SPACE),
-                ..
-            } => {
-                state.auto_rotate = !state.auto_rotate;
-            }
+                Keycode::BACKSPACE => state.camera.reset_panorama_options(),
+                Keycode::LEFT => state.camera.rotation_speed -= 0.5,
+                Keycode::RIGHT => state.camera.rotation_speed += 0.5,
+                Keycode::SPACE => state.auto_rotate = !state.auto_rotate,
+
+                _ => {}
+            },
+            Event::Quit { .. } => state.should_quit = true,
             Event::MouseMotion {
                 mousestate,
                 xrel,
