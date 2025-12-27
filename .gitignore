@@ -3,7 +3,7 @@ result
 .vscode
 .direnv
 
-packs
+packs/*
 test/*
 *.png
 *.mp4

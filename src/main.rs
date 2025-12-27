@@ -297,6 +297,11 @@ fn handle_events(window: &mut Window, event_pump: &mut EventPump, state: &mut St
                 keycode: Some(keycode),
                 ..
             } => match keycode {
+                Keycode::O => state.use_overlay = !state.use_overlay,
+                Keycode::SPACE => state.auto_rotate = !state.auto_rotate,
+                Keycode::LEFT => state.camera.rotation_speed -= 0.5,
+                Keycode::RIGHT => state.camera.rotation_speed += 0.5,
+                Keycode::BACKSPACE => state.camera.reset_panorama_options(),
                 Keycode::ESCAPE => state.should_quit = true,
                 Keycode::F11 => match window.fullscreen_state() {
                     sdl2::video::FullscreenType::Off => {
@@ -318,11 +323,6 @@ fn handle_events(window: &mut Window, event_pump: &mut EventPump, state: &mut St
                         ));
                     }
                 }
-                Keycode::BACKSPACE => state.camera.reset_panorama_options(),
-                Keycode::LEFT => state.camera.rotation_speed -= 0.5,
-                Keycode::RIGHT => state.camera.rotation_speed += 0.5,
-                Keycode::SPACE => state.auto_rotate = !state.auto_rotate,
-                Keycode::O => state.use_overlay = !state.use_overlay,
                 _ => {}
             },
             Event::Quit { .. } => state.should_quit = true,
